@@ -1,0 +1,487 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Exam Prep & Tracker</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,sans-serif;background:#eef3fb;color:#1b2540;padding-bottom:70px}
+header{background:#14254a;color:#fff;padding:14px 16px;display:flex;justify-content:space-between;align-items:center;position:sticky;top:0;z-index:5}
+header h1{font-size:18px}
+header span{font-size:13px;background:#2b6abf;padding:4px 10px;border-radius:12px;cursor:pointer}
+main{padding:12px;max-width:640px;margin:auto}
+.card{background:#fff;border-radius:12px;padding:12px;margin-bottom:12px;box-shadow:0 1px 4px #0002}
+.row{display:flex;gap:8px;align-items:center}
+.row h3{flex:1;font-size:16px}
+input,select{flex:1;padding:10px;border:1px solid #c5d0e6;border-radius:8px;font-size:15px;min-width:0;background:#fff}
+button{background:#2b6abf;color:#fff;border:0;border-radius:8px;padding:10px 14px;font-size:15px;cursor:pointer}
+button.x{background:transparent;color:#c0392b;padding:6px}
+button.flag{background:transparent;color:#bbb;padding:6px;font-size:18px}
+button.flag.on{color:#e67e22}
+.topic{display:flex;align-items:center;gap:6px;padding:6px 0;border-bottom:1px solid #eef1f7}
+.topic label{flex:1;display:flex;gap:8px;align-items:center}
+.topic input{flex:none;width:20px;height:20px}
+.done{text-decoration:line-through;color:#8a94a8}
+.bar{height:8px;background:#e1e8f5;border-radius:6px;margin:8px 0;overflow:hidden}
+.bar i{display:block;height:100%;background:#2bb673}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px}
+.stat{background:#fff;border-radius:12px;padding:14px;box-shadow:0 1px 4px #0002}
+.stat b{display:block;font-size:22px;color:#2b6abf}
+.stat span{font-size:13px;color:#667}
+.alert{background:#fff4e0;border-left:4px solid #e67e22;padding:10px;border-radius:8px;margin-bottom:8px;font-size:14px}
+.muted{color:#778;font-size:14px;text-align:center;padding:12px}
+small{color:#556}
+.tag{font-size:12px;padding:3px 8px;border-radius:10px;background:#e1e8f5}
+.tag.red{background:#fde0dc;color:#c0392b}
+nav{position:fixed;bottom:0;left:0;right:0;background:#fff;display:flex;border-top:1px solid #d5dcec}
+nav button{flex:1;background:none;color:#667;border-radius:0;padding:10px 2px;font-size:11px}
+nav button.on{color:#2b6abf;font-weight:700}
+.auth{margin-top:30px}
+.auth h2{margin-bottom:12px;color:#14254a}
+.auth input{width:100%;flex:none;margin-bottom:10px}
+.auth button{width:100%}
+.auth a{color:#2b6abf}
+.err{color:#c0392b;font-size:14px;min-height:20px;margin-bottom:6px}
+header .right{display:flex;gap:8px}
+.chk{display:flex;align-items:center;gap:8px;margin-bottom:10px;font-size:14px}
+.auth .chk input{width:18px;height:18px;margin:0;flex:none}
+.auth select{width:100%;flex:none;margin-bottom:10px}
+.hint{font-size:13px;color:#556;text-align:left;margin-bottom:10px}
+</style>
+</head>
+<body>
+<header><h1>📚 Exam Prep & Tracker</h1>
+  <div class="right"><span id="who" onclick="rename()"></span><span id="out" onclick="logout()">Logout</span></div>
+</header>
+<main id="view"></main>
+<nav>
+  <button data-t="home" onclick="go('home')">🏠<br>Home</button>
+  <button data-t="subjects" onclick="go('subjects')">📖<br>Subjects</button>
+  <button data-t="exams" onclick="go('exams')">📅<br>Exams</button>
+  <button data-t="revise" onclick="go('revise')">🔁<br>Revise</button>
+  <button data-t="classes" onclick="go('classes')">🎓<br>Classes</button>
+</nav>
+
+<script>
+/* ---------- helpers ---------- */
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const daysUntil = d => {
+  const t = new Date(); t.setHours(0, 0, 0, 0);
+  return Math.round((new Date(d + 'T00:00:00') - t) / 864e5);
+};
+const today = () => new Date().toISOString().slice(0, 10);
+
+/* ---------- OOP classes ---------- */
+class Topic {
+  constructor(o) {
+    this.id = o.id || uid();
+    this.name = o.name;
+    this.isCovered = !!o.isCovered;
+    this.isWeak = !!o.isWeak;
+  }
+}
+
+class Subject {
+  constructor(o) {
+    this.id = o.id || uid();
+    this.name = o.name;
+    this.topics = (o.topics || []).map(t => new Topic(t));
+  }
+  addTopic(name) { this.topics.push(new Topic({ name })); }
+  get done() { return this.topics.filter(t => t.isCovered).length; }
+  // Coverage = completed / total * 100
+  get coverage() {
+    return this.topics.length ? Math.round(this.done / this.topics.length * 1000) / 10 : 0;
+  }
+}
+
+class Exam {
+  constructor(o) {
+    this.id = o.id || uid();
+    this.subjectId = o.subjectId;
+    this.date = o.date;
+  }
+  get daysLeft() { return daysUntil(this.date); }
+}
+
+class ClassSession {
+  constructor(o) {
+    this.id = o.id || uid();
+    this.subjectId = o.subjectId;
+    this.date = o.date;
+    this.attended = !!o.attended;
+  }
+}
+
+class RevisionSession {
+  constructor(o) {
+    this.id = o.id || uid();
+    this.topic = o.topic;
+    this.date = o.date || today();
+    this.status = o.status || 'Done';
+  }
+}
+
+class Reminder {
+  static THRESHOLDS = [1, 7, 15, 31];   // days before exam
+  static generate(student) {
+    const out = [];
+    for (const e of student.exams) {
+      const d = e.daysLeft;
+      if (d < 0) continue;
+      const hit = Reminder.THRESHOLDS.find(t => d <= t);
+      if (hit === undefined) continue;
+      const sub = student.subject(e.subjectId);
+      if (!sub) continue;
+      const when = d === 0 ? 'is TODAY' : `is in ${d} day${d > 1 ? 's' : ''}`;
+      out.push(`${sub.name} exam ${when}. Coverage: ${sub.coverage}%`);
+    }
+    return out;
+  }
+}
+
+class Student {
+  constructor(o = {}) {
+    this.name = o.name || 'Student';
+    this.subjects = (o.subjects || []).map(s => new Subject(s));
+    this.exams = (o.exams || []).map(e => new Exam(e));
+    this.classes = (o.classes || []).map(c => new ClassSession(c));
+    this.revisions = (o.revisions || []).map(r => new RevisionSession(r));
+  }
+  subject(id) { return this.subjects.find(s => s.id === id); }
+  get totalTopics() { return this.subjects.reduce((a, s) => a + s.topics.length, 0); }
+  get totalDone() { return this.subjects.reduce((a, s) => a + s.done, 0); }
+  get coverage() {
+    return this.totalTopics ? Math.round(this.totalDone / this.totalTopics * 1000) / 10 : 0;
+  }
+  nextExam() {
+    return this.exams.filter(e => e.daysLeft >= 0).sort((a, b) => a.daysLeft - b.daysLeft)[0];
+  }
+  weakTopics() {
+    const list = [];
+    this.subjects.forEach(s => s.topics.forEach(t => { if (t.isWeak) list.push({ s, t }); }));
+    return list;
+  }
+  save() { localStorage.setItem('examTracker_data_' + user, JSON.stringify(this)); }
+  static load(u) {
+    let d = {};
+    try { d = JSON.parse(localStorage.getItem('examTracker_data_' + u)) || {}; } catch (e) {}
+    if (!d.name) d.name = u;
+    return new Student(d);
+  }
+}
+
+/* ---------- accounts (stored on this device) ---------- */
+class Auth {
+  static users() {
+    try { return JSON.parse(localStorage.getItem('examTracker_users')) || {}; }
+    catch (e) { return {}; }
+  }
+  static async hash(pw, salt) {
+    const text = salt + pw;
+    if (window.crypto && crypto.subtle) {
+      const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+      return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+    }
+    let h = 5381;                       // fallback if crypto is unavailable
+    for (const c of text) h = ((h << 5) + h + c.charCodeAt(0)) | 0;
+    return 'f' + h;
+  }
+  static async register(name, pw, q, a) {
+    const u = name.trim().toLowerCase();
+    if (u.length < 3) throw new Error('Username must be at least 3 characters');
+    if (!/^[a-z0-9_.]+$/.test(u)) throw new Error('Use only letters, numbers, _ and .');
+    if (pw.length < 4) throw new Error('Password must be at least 4 characters');
+    if (!q || !a || a.trim().length < 2) throw new Error('Choose a security question and answer it');
+    const users = Auth.users();
+    if (users[u]) throw new Error('Username already taken');
+    const salt = uid();
+    const firstUser = Object.keys(users).length === 0;
+    users[u] = { salt, hash: await Auth.hash(pw, salt), q, sa: await Auth.hash(a.trim().toLowerCase(), salt) };
+    localStorage.setItem('examTracker_users', JSON.stringify(users));
+    // keep data saved before accounts existed, give it to the first account
+    const old = localStorage.getItem('examTracker');
+    if (firstUser && old) localStorage.setItem('examTracker_data_' + u, old);
+    return u;
+  }
+  static async login(name, pw) {
+    const u = name.trim().toLowerCase();
+    const rec = Auth.users()[u];
+    if (!rec || rec.hash !== await Auth.hash(pw, rec.salt)) throw new Error('Wrong username or password');
+    return u;
+  }
+  static question(u) { const r = Auth.users()[u]; return r && r.q ? r.q : null; }
+  static async setQuestion(u, q, a) {
+    if (!a || a.trim().length < 2) throw new Error('Please type an answer');
+    const users = Auth.users(), rec = users[u];
+    rec.q = q; rec.sa = await Auth.hash(a.trim().toLowerCase(), rec.salt);
+    localStorage.setItem('examTracker_users', JSON.stringify(users));
+  }
+  static async reset(u, answer, newPw) {
+    const users = Auth.users(), rec = users[u];
+    if (!rec || !rec.sa) throw new Error('This account cannot be reset');
+    if (newPw.length < 4) throw new Error('Password must be at least 4 characters');
+    if (rec.sa !== await Auth.hash(answer.trim().toLowerCase(), rec.salt)) throw new Error('Wrong answer');
+    rec.hash = await Auth.hash(newPw, rec.salt);
+    localStorage.setItem('examTracker_users', JSON.stringify(users));
+  }
+}
+
+/* ---------- app state ---------- */
+let S = null, user = null, authMode = 'login';
+let tab = 'home';
+const $ = id => document.getElementById(id);
+const bar = p => `<div class="bar"><i style="width:${p}%"></i></div>`;
+const subOptions = () => S.subjects.map(s => `<option value="${s.id}">${esc(s.name)}</option>`).join('');
+
+function go(t) { tab = t; render(); }
+function commit() { S.save(); render(); }
+function rename() {
+  const n = prompt('Your name?', S.name);
+  if (n && n.trim()) { S.name = n.trim(); commit(); }
+}
+
+function render() {
+  const loggedIn = !!user;
+  document.querySelector('nav').style.display = loggedIn ? 'flex' : 'none';
+  $('who').style.display = $('out').style.display = loggedIn ? '' : 'none';
+  if (!loggedIn) { $('view').innerHTML = vAuth(); return; }
+  document.querySelectorAll('nav button').forEach(b => b.classList.toggle('on', b.dataset.t === tab));
+  $('who').textContent = '👤 ' + S.name;
+  $('view').innerHTML = ({ home: vHome, subjects: vSubjects, exams: vExams, revise: vRevise, classes: vClasses })[tab]();
+}
+
+/* ---------- login / register / forgot password ---------- */
+const QUESTIONS = ["Which city were you born in?"];   // the one security question
+let resetUser = null;
+const qOptions = () => QUESTIONS.map(q => `<option>${esc(q)}</option>`).join('');
+const backLink = `<p class="muted"><a href="#" onclick="setMode('login');return false">Back to login</a></p>`;
+
+function vAuth() {
+  if (authMode === 'forgot') return `<div class="card auth">
+    <h2>Forgot password</h2>
+    <p class="hint">Enter your username. You will then answer the security question you chose when you registered.</p>
+    <input id="au" placeholder="Username" autocapitalize="none">
+    <p class="err" id="aerr"></p>
+    <button onclick="startReset()">Next</button>${backLink}</div>`;
+  if (authMode === 'reset') return `<div class="card auth">
+    <h2>Reset password</h2>
+    <p class="hint"><b>${esc(Auth.question(resetUser))}</b></p>
+    <input id="ans" placeholder="Your answer">
+    <input id="np" type="password" placeholder="New password" autocomplete="new-password">
+    <input id="np2" type="password" placeholder="Confirm new password" autocomplete="new-password">
+    <p class="err" id="aerr"></p>
+    <button onclick="doReset()">Reset password</button>${backLink}</div>`;
+  const reg = authMode === 'register';
+  return `<div class="card auth">
+    <h2>${reg ? 'Create account' : 'Login'}</h2>
+    <input id="au" placeholder="Username" autocapitalize="none" autocomplete="username">
+    <input id="ap" type="password" placeholder="Password" autocomplete="${reg ? 'new-password' : 'current-password'}">
+    ${reg ? `<input id="ap2" type="password" placeholder="Confirm password" autocomplete="new-password">
+      <p class="hint">Security question (used if you forget your password):</p>
+      <p class="hint"><b>${esc(QUESTIONS[0])}</b></p>
+      <input type="hidden" id="aq" value="${esc(QUESTIONS[0])}">
+      <input id="aa" placeholder="Your answer">` : ''}
+    <label class="chk"><input type="checkbox" id="rm" checked> Remember me</label>
+    <p class="err" id="aerr"></p>
+    <button onclick="doAuth()">${reg ? 'Register' : 'Login'}</button>
+    ${reg ? '' : `<p class="muted"><a href="#" onclick="setMode('forgot');return false">Forgot password?</a></p>`}
+    <p class="muted">${reg ? 'Already have an account?' : 'New here?'}
+      <a href="#" onclick="switchAuth();return false">${reg ? 'Login' : 'Register'}</a></p>
+  </div>`;
+}
+function setMode(m) { authMode = m; render(); }
+function switchAuth() { setMode(authMode === 'login' ? 'register' : 'login'); }
+
+async function doAuth() {
+  const err = m => { $('aerr').textContent = m; };
+  try {
+    let u;
+    if (authMode === 'register') {
+      if ($('ap').value !== $('ap2').value) return err('Passwords do not match');
+      u = await Auth.register($('au').value, $('ap').value, $('aq').value, $('aa').value);
+    } else {
+      u = await Auth.login($('au').value, $('ap').value);
+    }
+    enter(u, $('rm').checked);
+  } catch (e) { err(e.message); }
+}
+function startReset() {
+  const err = m => { $('aerr').textContent = m; };
+  const u = $('au').value.trim().toLowerCase();
+  if (!Auth.users()[u]) return err('Username not found');
+  if (!Auth.question(u)) return err('This account has no security question, so its password cannot be reset');
+  resetUser = u; setMode('reset');
+}
+async function doReset() {
+  const err = m => { $('aerr').textContent = m; };
+  if ($('np').value !== $('np2').value) return err('Passwords do not match');
+  try {
+    await Auth.reset(resetUser, $('ans').value, $('np').value);
+    alert('Password changed. Please login with your new password.');
+    setMode('login');
+  } catch (e) { err(e.message); }
+}
+function enter(u, remember = true) {
+  user = u;
+  localStorage.removeItem('examTracker_session');
+  sessionStorage.removeItem('examTracker_session');
+  (remember ? localStorage : sessionStorage).setItem('examTracker_session', u);
+  S = Student.load(u);
+  tab = 'home';
+  render();
+}
+function logout() {
+  user = null; S = null; authMode = 'login';
+  localStorage.removeItem('examTracker_session');
+  sessionStorage.removeItem('examTracker_session');
+  render();
+}
+
+/* accounts made before the security question existed can add one on Home */
+function secCard() {
+  if (Auth.question(user)) return '';
+  return `<div class="card"><h3 style="margin-bottom:6px">🔐 Set a security question</h3>
+    <p class="hint">Needed if you ever forget your password.</p>
+    <p class="hint"><b>${esc(QUESTIONS[0])}</b></p>
+    <input type="hidden" id="sq" value="${esc(QUESTIONS[0])}">
+    <input id="sa" placeholder="Your answer" style="width:100%;margin-bottom:8px">
+    <button style="width:100%" onclick="saveSec()">Save</button></div>`;
+}
+async function saveSec() {
+  try { await Auth.setQuestion(user, $('sq').value, $('sa').value); render(); }
+  catch (e) { alert(e.message); }
+}
+
+/* ---------- views ---------- */
+function vHome() {
+  const nx = S.nextExam();
+  const nxSub = nx && S.subject(nx.subjectId);
+  const upcoming = S.classes.filter(c => !c.attended && daysUntil(c.date) >= 0).length;
+  const alerts = Reminder.generate(S).map(m => `<div class="alert">⏰ ${esc(m)}</div>`).join('');
+  const subs = S.subjects.map(s =>
+    `<div class="card"><div class="row"><h3>${esc(s.name)}</h3><small>${s.done}/${s.topics.length} topics · ${s.coverage}%</small></div>${bar(s.coverage)}</div>`
+  ).join('');
+  return `${secCard()}${alerts}
+  <div class="grid">
+    <div class="stat"><b>${nx ? nx.daysLeft + ' days' : '—'}</b><span>${nx ? esc(nxSub ? nxSub.name : '') + ' exam' : 'No exam set'}</span></div>
+    <div class="stat"><b>${S.coverage}%</b><span>${S.totalDone}/${S.totalTopics} topics done</span></div>
+    <div class="stat"><b>${S.weakTopics().length}</b><span>Pending revisions</span></div>
+    <div class="stat"><b>${upcoming}</b><span>Upcoming classes</span></div>
+  </div>
+  ${subs || '<p class="muted">Go to Subjects and add your first subject 👉</p>'}`;
+}
+
+function vSubjects() {
+  const list = S.subjects.map(s => `
+    <div class="card">
+      <div class="row"><h3>${esc(s.name)}</h3><small>${s.coverage}%</small>
+        <button class="x" onclick="delSubject('${s.id}')">🗑</button></div>
+      ${bar(s.coverage)}
+      ${s.topics.map(t => `
+        <div class="topic">
+          <label><input type="checkbox" ${t.isCovered ? 'checked' : ''} onchange="tog('${s.id}','${t.id}','isCovered')">
+          <span class="${t.isCovered ? 'done' : ''}">${esc(t.name)}</span></label>
+          <button class="flag ${t.isWeak ? 'on' : ''}" onclick="tog('${s.id}','${t.id}','isWeak')">⚑</button>
+          <button class="x" onclick="delTopic('${s.id}','${t.id}')">✕</button>
+        </div>`).join('')}
+      <div class="row" style="margin-top:8px">
+        <input id="t_${s.id}" placeholder="Add topic">
+        <button onclick="addTopic('${s.id}')">+</button>
+      </div>
+    </div>`).join('');
+  return `<div class="card row"><input id="sn" placeholder="New subject (e.g. OOP)"><button onclick="addSubject()">Add</button></div>
+    ${list || '<p class="muted">No subjects yet.</p>'}
+    <p class="muted">Tick = topic covered · ⚑ = weak topic (goes to Revise)</p>`;
+}
+
+function vExams() {
+  const list = [...S.exams].sort((a, b) => a.daysLeft - b.daysLeft).map(e => {
+    const s = S.subject(e.subjectId);
+    const d = e.daysLeft;
+    return `<div class="card row"><h3>${esc(s ? s.name : '?')}<br><small>${e.date}</small></h3>
+      <span class="tag ${d >= 0 && d <= 7 ? 'red' : ''}">${d < 0 ? 'Over' : d + ' days left'}</span>
+      <button class="x" onclick="delExam('${e.id}')">🗑</button></div>`;
+  }).join('');
+  if (!S.subjects.length) return '<p class="muted">Add a subject first.</p>';
+  return `<div class="card"><div class="row"><select id="es">${subOptions()}</select><input type="date" id="ed"></div>
+    <button style="margin-top:8px;width:100%" onclick="addExam()">Add exam</button></div>
+    ${list || '<p class="muted">No exams yet.</p>'}
+    <p class="muted">Reminders appear on Home at 31, 15, 7 and 1 day before an exam.</p>`;
+}
+
+function vRevise() {
+  const w = S.weakTopics().map(({ s, t }) => `
+    <div class="card row"><h3>${esc(t.name)}<br><small>${esc(s.name)}</small></h3>
+    <button onclick="revised('${s.id}','${t.id}')">Revised ✓</button></div>`).join('');
+  const log = [...S.revisions].reverse().slice(0, 10).map(r =>
+    `<div class="topic"><span style="flex:1">${esc(r.topic)}</span><small>${r.date} · ${esc(r.status)}</small></div>`).join('');
+  return `<h3 style="margin:4px 0 8px">Revision queue</h3>
+    ${w || '<p class="muted">Nothing pending. Flag weak topics with ⚑ in Subjects.</p>'}
+    ${log ? `<div class="card"><h3 style="margin-bottom:6px">Recent revisions</h3>${log}</div>` : ''}`;
+}
+
+function vClasses() {
+  if (!S.subjects.length) return '<p class="muted">Add a subject first.</p>';
+  const att = S.classes.filter(c => c.attended).length;
+  const list = [...S.classes].sort((a, b) => a.date.localeCompare(b.date)).map(c => {
+    const s = S.subject(c.subjectId);
+    return `<div class="topic"><label><input type="checkbox" ${c.attended ? 'checked' : ''} onchange="togClass('${c.id}')">
+      <span>${esc(s ? s.name : '?')} · ${c.date}</span></label>
+      <button class="x" onclick="delClass('${c.id}')">✕</button></div>`;
+  }).join('');
+  return `<div class="card"><div class="row"><select id="cs">${subOptions()}</select><input type="date" id="cd" value="${today()}"></div>
+    <button style="margin-top:8px;width:100%" onclick="addClass()">Add class</button></div>
+    <div class="card"><h3 style="margin-bottom:6px">Attended ${att} / ${S.classes.length}</h3>${list || '<p class="muted">No classes yet.</p>'}</div>`;
+}
+
+/* ---------- actions ---------- */
+function addSubject() {
+  const n = $('sn').value.trim(); if (!n) return;
+  S.subjects.push(new Subject({ name: n })); commit();
+}
+function delSubject(id) {
+  if (!confirm('Delete this subject and its exams/classes?')) return;
+  S.subjects = S.subjects.filter(s => s.id !== id);
+  S.exams = S.exams.filter(e => e.subjectId !== id);
+  S.classes = S.classes.filter(c => c.subjectId !== id);
+  commit();
+}
+function addTopic(sid) {
+  const n = $('t_' + sid).value.trim(); if (!n) return;
+  S.subject(sid).addTopic(n); commit();
+}
+function tog(sid, tid, key) {
+  const t = S.subject(sid).topics.find(x => x.id === tid);
+  t[key] = !t[key]; commit();
+}
+function delTopic(sid, tid) {
+  const s = S.subject(sid); s.topics = s.topics.filter(t => t.id !== tid); commit();
+}
+function addExam() {
+  const d = $('ed').value; if (!d) return alert('Pick a date');
+  S.exams.push(new Exam({ subjectId: $('es').value, date: d })); commit();
+}
+function delExam(id) { S.exams = S.exams.filter(e => e.id !== id); commit(); }
+function revised(sid, tid) {
+  const t = S.subject(sid).topics.find(x => x.id === tid);
+  t.isWeak = false;
+  S.revisions.push(new RevisionSession({ topic: t.name })); commit();
+}
+function addClass() {
+  const d = $('cd').value; if (!d) return alert('Pick a date');
+  S.classes.push(new ClassSession({ subjectId: $('cs').value, date: d })); commit();
+}
+function togClass(id) { const c = S.classes.find(x => x.id === id); c.attended = !c.attended; commit(); }
+function delClass(id) { S.classes = S.classes.filter(c => c.id !== id); commit(); }
+
+/* ---------- start: stay logged in on this device ---------- */
+const remembered = localStorage.getItem('examTracker_session');
+const savedUser = remembered || sessionStorage.getItem('examTracker_session');
+if (savedUser && Auth.users()[savedUser]) enter(savedUser, !!remembered);
+else render();
+</script>
+</body>
+</html>
